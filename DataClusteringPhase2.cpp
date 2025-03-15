@@ -29,7 +29,7 @@ but if you are going to run through an entire data set many times (ex: 100) then
 using namespace std;
 
 //Phase 1 (Gather the data)
-int checkTheArguments(string fileName, int numOfClusters, int maxIterations, double convergenceThreshold, int numOfRuns, int typeOfClustering);
+int checkTheArguments(string fileName, int minNumClusters, int maxIterations, double convergenceThreshold, int numOfRuns, int typeOfClustering);
 vector<vector<double>> readData(string fileName, int& numOfInstances, int& sizeOfInstances);
 vector<vector<double>> setClusters(vector<vector<double>>& data, int numOfClusters);
 
@@ -46,12 +46,13 @@ vector<vector<double>> randomParitionClusters(vector<vector<double>>& data, int 
 vector<vector<double>> maximumMethodClusters(vector<vector<double>>& data, int numOfClusters);
 
 //Phase 4
-double calinski_validity(vector<vector<double>>& data);
+double calinski_validity(vector<vector<double>>& data, vector<vector<double>>& clusters);
+void findClosestCluster(vector<double>& data, vector<vector<double>>& clusters, int& closestCluster, double& closestDist);
 
 int main(int argc, char* argv[])
 {
     string fileName;
-    int numOfClusters = -1;
+    int minNumClusters = -1;
     int maxIterations = -1;
     double convergenceThreshold = -1;
     int numOfRuns = -1;
@@ -63,7 +64,7 @@ int main(int argc, char* argv[])
     {
         cout << "Usage: <F> <K> <I> <T> <R> <V>" << endl;
         cout << "F: Name of the data file" << endl;
-        cout << "K: Number of clusters (positive integer greater than 1)" << endl;
+        cout << "K: Minimum number of clusters (positive integer greater than 1)" << endl;
         cout << "I: Maximum number of iterations (positive integer)" << endl;
         cout << "T: Convergence threshold (non-negative real number)" << endl;
         cout << "R: Number of runs (positive integer)" << endl;
@@ -73,14 +74,14 @@ int main(int argc, char* argv[])
 
     // collect the data from arguments
     fileName = argv[1];
-    numOfClusters = stoi(argv[2]);
+    minNumClusters = stoi(argv[2]);
     maxIterations = stoi(argv[3]);
     convergenceThreshold = stod(argv[4]);
     numOfRuns = stoi(argv[5]);
     typeOfClustering = stoi(argv[6]);
 
     //check the data
-    int result = checkTheArguments(fileName, numOfClusters, maxIterations, convergenceThreshold, numOfRuns, typeOfClustering);
+    int result = checkTheArguments(fileName, minNumClusters, maxIterations, convergenceThreshold, numOfRuns, typeOfClustering);
 
     if (result == 1) {
         //error
@@ -90,16 +91,16 @@ int main(int argc, char* argv[])
     int sizeOfInstances, numOfInstances;
     //Read the data from the file
     vector<vector<double>> data = readData(fileName, numOfInstances, sizeOfInstances);
-    data = zScoreNorm(data);
+    //data = minMaxNorm(data);
 
     vector<vector<double>> clusters;
-    double bestFinalSSE = 0;
-    double bestInitialSSE = 0;
-    int bestRun = 0;
-    int bestIteration = 0;
-        //run for the number of runs
-        for (int i = 1; i <= numOfRuns; i++) {
-            //obtain clusters | check which type of clustering to do
+    int bestNumOfClusters = 0;
+    double bestCH = INFINITY;
+    int maxNumClusters = data.size() / 2;
+    
+    // run for clusters
+    for(int numOfClusters = minNumClusters; numOfClusters < maxNumClusters; numOfClusters++){
+        //obtain clusters | check which type of clustering to do
         switch(typeOfClustering){
             case 0:
                 clusters = setClusters(data, numOfClusters);
@@ -111,41 +112,28 @@ int main(int argc, char* argv[])
                 clusters = maximumMethodClusters(data, numOfClusters);
                 break;
             }
-
-
-
-            //phase 2
-            //display which run we are on
-            cout << "Run " << i << endl << "__________" << endl;
-            //run the iterations and display the SSE
-            double initialSSE;
-            int iterations;
+        cout << "Clusters: " << numOfClusters << endl;
+        //run the iterations and display the SSE
+        double initialSSE;
+        int iterations;
         double finalSSE = runIterations(maxIterations, convergenceThreshold, clusters, data,initialSSE, iterations);
-            if (bestFinalSSE == 0 || finalSSE < bestFinalSSE) {
-                bestFinalSSE = finalSSE;
-                bestRun = i;
-            }
-            if (bestInitialSSE == 0 || initialSSE < bestInitialSSE) {
-                bestInitialSSE = initialSSE;
-            }
-            if (bestIteration == 0 || iterations < bestIteration) {
-                bestIteration = iterations;
-            }
-        
-        
 
+        double CH_index = calinski_validity(data, clusters);
+        cout << "CH_Index: " << CH_index << endl << endl;
+        if (CH_index < bestCH) {
+            bestCH = CH_index;
+            bestNumOfClusters = numOfClusters;
         }
-        //Print out what the best run was
-        cout << "Best Run: " << bestRun << endl;
-        cout << "Best Iterations: " << bestIteration << endl;
-        cout << "Best Initial SSE: " << bestInitialSSE<< endl;
-        cout << "Best Final SSE: " << bestFinalSSE << endl;
-        return 0;
-    //}
+
+
+    }
+    cout << "Best CH: " << bestCH << endl;
+    cout << "Best Number of Clusters: " << bestNumOfClusters << endl;
+    return 0;
 }
 
 //makes sure the arguments are valid
-int checkTheArguments(string fileName, int numOfClusters, int maxIterations, double convergenceThreshold, int numOfRuns, int typeOfClustering) {
+int checkTheArguments(string fileName, int minNumClusters, int maxIterations, double convergenceThreshold, int numOfRuns, int typeOfClustering) {
     try
     {
         // Validate the arguments
@@ -156,7 +144,7 @@ int checkTheArguments(string fileName, int numOfClusters, int maxIterations, dou
         }
         file.close();
 
-        if (numOfClusters <= 1)
+        if (minNumClusters <= 1)
         {
             throw invalid_argument("Number of clusters (K) must be greater than 1.");
         }
@@ -251,8 +239,6 @@ vector<vector<double>> setClusters(vector<vector<double>>& data, int numOfCluste
 
 //Run through the Iterations and returns Initial, Final SSE and iterations | & are to save on memory managment and speed
 double runIterations(int& maxIterations, double& convergenceThreshold, vector<vector<double>>& clusters, vector<vector<double>>& data, double& initialSSE, int& iterationsRan) {
-    
-    
     double oldSSE = 0;
     int numOfInstances = data.size();
     int numOfClusters = clusters.size();
@@ -298,7 +284,7 @@ double runIterations(int& maxIterations, double& convergenceThreshold, vector<ve
 
             // Calculate the SSE
             SSE += closestDist;
-            
+
             //generate new clusters
             //add the data to the cluster
             for (int k = 0; k < sizeOfInstances; k++) {
@@ -309,9 +295,9 @@ double runIterations(int& maxIterations, double& convergenceThreshold, vector<ve
             clusterSize[closest] += 1;
         }
 
-            
-        
-        
+
+
+
         //check if the convergenceThreshold is reached and kill the run if so
         if ((oldSSE - SSE) / oldSSE < convergenceThreshold && oldSSE != 0) {
             //save the iterations and Final SSE
@@ -356,7 +342,7 @@ double runIterations(int& maxIterations, double& convergenceThreshold, vector<ve
                 }
             }
         }
-        
+
     }
     return oldSSE;
 }
@@ -535,48 +521,82 @@ vector<vector<double>> maximumMethodClusters(vector<vector<double>>& data, int n
     }
     return clusters;
 }
+//finds the closest cluster and returns it and distance
+void findClosestCluster(vector<double>& data, vector<vector<double>>& clusters, int& closestCluster, double& closestDist) {
+    //Find which cluster is closer, initializing with the first cluster distance
+    closestCluster = 0;
+    // -1 means that there is no closest distance yet
+    closestDist = calculateSquaredDistance(data, clusters[0]);
 
-//Calinski validity test
-double calinski_validity(vector<vector<double>>& clusters) {
-    //get the number of clusters
-    int k = clusters.size();
-
-    //Step 1 find the global mean
-    int clustersDataCount = 0;
-    double globalMean = 0.0;
-
-    // Compute global mean
-    for (const auto& cluster : clusters) {
-        for (double point : cluster) {
-            globalMean += point;
-            clustersDataCount++;
+    // Loop through all clusters to find the closest
+    for (int h = 1; h < clusters.size(); h++) {  // Start from 1 since 0 is already checked
+        double dist = calculateSquaredDistance(data, clusters[h]);
+        if (dist < closestDist) {
+            closestDist = dist;  // Update closest distance
+            closestCluster = h;         // Update closest cluster index
         }
     }
-    globalMean /= clustersDataCount;
+}
 
-    //Step 2 find the Tr_Bk and Tr_Wk
-    double Tr_Bk = 0.0;
-    double Tr_Wk = 0.0; 
+// Function to compute the Calinski-Harabasz Index
+double calinski_validity(vector<vector<double>>& data, vector<vector<double>>& clusters) {
+    int numClusters = clusters.size();
+    int numInstances = data.size();
+    int dimension = data[0].size();
 
-    for (const auto& cluster : clusters) {
-        int cluster_size = cluster.size();
+    if (numClusters < 2 || numInstances <= numClusters) {
+        return 0; // CH index is not meaningful in this case
+    }
 
-        double cluster_mean = 0.0;
-        for (double point : cluster) {
-            cluster_mean += point;
+    // Assign each data point to its closest cluster
+    vector<int> labels(numInstances);
+    vector<int> clusterSizes(numClusters, 0);
+    double dist;
+    for (int i = 0; i < numInstances; i++) {
+        findClosestCluster(data[i], clusters, labels[i], dist);
+        clusterSizes[labels[i]]++;  // Track how many points belong to each cluster
+    }
+
+    // Compute overall mean
+    vector<double> overallMean(dimension, 0.0);
+    for (const auto& point : data) {
+        for (int i = 0; i < dimension; i++) {
+            overallMean[i] += point[i];
         }
-        cluster_mean /= cluster_size;
+    }
+    for (int i = 0; i < dimension; i++) {
+        overallMean[i] /= numInstances;
+    }
 
-        Tr_Bk += cluster_size * pow(cluster_mean - globalMean, 2);
+    // Compute Between-cluster scatter (BSS)
+    double BSS = 0.0;
+    for (int i = 0; i < numClusters; i++) {
+        if (clusterSizes[i] == 0) continue;  // Ignore empty clusters
 
-        for (double point : cluster) {
-            Tr_Wk += pow(point - cluster_mean, 2);
+        double dist = 0.0;
+        for (int j = 0; j < dimension; j++) {
+            double diff = clusters[i][j] - overallMean[j];
+            dist += diff * diff;
+        }
+        BSS += clusterSizes[i] * dist;
+    }
+
+    // Compute Within-cluster scatter (WSS)
+    double WSS = 0.0;
+    for (int i = 0; i < numInstances; i++) {
+        int clusterIdx = labels[i];
+        for (int j = 0; j < dimension; j++) {
+            double diff = data[i][j] - clusters[clusterIdx][j];
+            WSS += diff * diff;
         }
     }
 
-    // Step 3 find the CH Index
-    if (Tr_Wk == 0) return -1;  // Avoid division by zero
-    double CH = (Tr_Bk / Tr_Wk) * ((clustersDataCount - k) / (k - 1.0));
+    // Avoid division by zero
+    if (WSS == 0) {
+        return 0;
+    }
 
+    // Compute CH index
+    double CH = (BSS / (numClusters - 1)) / (WSS / (numInstances - numClusters));
     return CH;
 }
