@@ -45,6 +45,9 @@ double sqrtNewton(double num, double precision);
 vector<vector<double>> randomParitionClusters(vector<vector<double>>& data, int numOfClusters);
 vector<vector<double>> maximumMethodClusters(vector<vector<double>>& data, int numOfClusters);
 
+//Phase 4
+double calinski_validity(vector<vector<double>>& data);
+
 int main(int argc, char* argv[])
 {
     string fileName;
@@ -94,46 +97,51 @@ int main(int argc, char* argv[])
     double bestInitialSSE = 0;
     int bestRun = 0;
     int bestIteration = 0;
-    //run for the number of runs
-    for (int i = 1; i <= numOfRuns; i++) {
-        //obtain clusters | check which type of clustering to do
+        //run for the number of runs
+        for (int i = 1; i <= numOfRuns; i++) {
+            //obtain clusters | check which type of clustering to do
         switch(typeOfClustering){
-        case 0:
-            clusters = setClusters(data, numOfClusters);
-            break;
-        case 1:
-            clusters = randomParitionClusters(data, numOfClusters);
-            break;
-        case 2:
-            clusters = maximumMethodClusters(data, numOfClusters);
-            break;
-        }
-        //display which run we are on
-        cout << "Run " << i << endl << "__________" << endl;
-        //phase 2
-        //run the iterations and display the SSE
-        double initialSSE;
-        int iterations;
-        double finalSSE = runIterations(maxIterations, convergenceThreshold, clusters, data,initialSSE, iterations);
-        if (bestFinalSSE == 0 || finalSSE < bestFinalSSE) {
-            bestFinalSSE = finalSSE;
-            bestRun = i;
-        }
-        if (bestInitialSSE == 0 || initialSSE < bestInitialSSE) {
-            bestInitialSSE = initialSSE;
-        }
-        if (bestIteration == 0 || iterations < bestIteration) {
-            bestIteration = iterations;
-        }
-    }
-    //Print out what the best run was
-    cout << "Best Run: " << bestRun << endl;
-    cout << "Best Iterations: " << bestIteration << endl;
-    cout << "Best Initial SSE: " << bestInitialSSE<< endl;
-    cout << "Best Final SSE: " << bestFinalSSE << endl;
+            case 0:
+                clusters = setClusters(data, numOfClusters);
+                break;
+            case 1:
+                clusters = randomParitionClusters(data, numOfClusters);
+                break;
+            case 2:
+                clusters = maximumMethodClusters(data, numOfClusters);
+                break;
+            }
 
-    
-    return 0;
+
+
+            //phase 2
+            //display which run we are on
+            cout << "Run " << i << endl << "__________" << endl;
+            //run the iterations and display the SSE
+            double initialSSE;
+            int iterations;
+        double finalSSE = runIterations(maxIterations, convergenceThreshold, clusters, data,initialSSE, iterations);
+            if (bestFinalSSE == 0 || finalSSE < bestFinalSSE) {
+                bestFinalSSE = finalSSE;
+                bestRun = i;
+            }
+            if (bestInitialSSE == 0 || initialSSE < bestInitialSSE) {
+                bestInitialSSE = initialSSE;
+            }
+            if (bestIteration == 0 || iterations < bestIteration) {
+                bestIteration = iterations;
+            }
+        
+        
+
+        }
+        //Print out what the best run was
+        cout << "Best Run: " << bestRun << endl;
+        cout << "Best Iterations: " << bestIteration << endl;
+        cout << "Best Initial SSE: " << bestInitialSSE<< endl;
+        cout << "Best Final SSE: " << bestFinalSSE << endl;
+        return 0;
+    //}
 }
 
 //makes sure the arguments are valid
@@ -207,7 +215,7 @@ vector<vector<double>> readData(string fileName, int& numOfInstances, int& sizeO
     }
 
     file.close();
-    return std::move(data);
+    return move(data);
 }
 //sets up the clusters
 vector<vector<double>> setClusters(vector<vector<double>>& data, int numOfClusters) {
@@ -526,4 +534,49 @@ vector<vector<double>> maximumMethodClusters(vector<vector<double>>& data, int n
         clusters[i] = data[selectedIndex];
     }
     return clusters;
+}
+
+//Calinski validity test
+double calinski_validity(vector<vector<double>>& clusters) {
+    //get the number of clusters
+    int k = clusters.size();
+
+    //Step 1 find the global mean
+    int clustersDataCount = 0;
+    double globalMean = 0.0;
+
+    // Compute global mean
+    for (const auto& cluster : clusters) {
+        for (double point : cluster) {
+            globalMean += point;
+            clustersDataCount++;
+        }
+    }
+    globalMean /= clustersDataCount;
+
+    //Step 2 find the Tr_Bk and Tr_Wk
+    double Tr_Bk = 0.0;
+    double Tr_Wk = 0.0; 
+
+    for (const auto& cluster : clusters) {
+        int cluster_size = cluster.size();
+
+        double cluster_mean = 0.0;
+        for (double point : cluster) {
+            cluster_mean += point;
+        }
+        cluster_mean /= cluster_size;
+
+        Tr_Bk += cluster_size * pow(cluster_mean - globalMean, 2);
+
+        for (double point : cluster) {
+            Tr_Wk += pow(point - cluster_mean, 2);
+        }
+    }
+
+    // Step 3 find the CH Index
+    if (Tr_Wk == 0) return -1;  // Avoid division by zero
+    double CH = (Tr_Bk / Tr_Wk) * ((clustersDataCount - k) / (k - 1.0));
+
+    return CH;
 }
