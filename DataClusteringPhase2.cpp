@@ -100,7 +100,7 @@ int main(int argc, char* argv[])
     int sizeOfInstances, numOfInstances;
     //Read the data from the file
     vector<vector<double>> data = readData(fileName, numOfInstances, sizeOfInstances);
-    data = minMaxNorm(data);
+    //data = minMaxNorm(data);
 
     labels.resize(numOfInstances);
     distancesToClosestCluster.resize(numOfInstances,0.0);
@@ -173,7 +173,7 @@ int main(int argc, char* argv[])
 }
 
 //makes sure the arguments are valid
-int checkTheArguments(string fileName, int maxIterations, double convergenceThreshold, int numOfRuns, int typeOfClustering) {
+int checkTheArguments(string fileName, int minNumClusters, int maxIterations, double convergenceThreshold, int numOfRuns, int typeOfClustering) {
     try
     {
         // Validate the arguments
@@ -183,6 +183,11 @@ int checkTheArguments(string fileName, int maxIterations, double convergenceThre
             throw invalid_argument(("File: " + fileName + " does not exist.").c_str());
         }
         file.close();
+
+        if (minNumClusters <= 1)
+        {
+            throw invalid_argument("Number of clusters (K) must be greater than 1.");
+        }
         if (maxIterations <= 0)
         {
             throw invalid_argument("Maximum number of iterations (I) must be positive.");
@@ -347,7 +352,7 @@ double runIterations(int& maxIterations, double& convergenceThreshold, vector<ve
         if (i == 1) {
             initialSSE = SSE;
         }
-        //cout << "Iteration: " << i << "| SSE: " << SSE << endl;
+        cout << "Iteration: " << i << "| SSE: " << SSE << endl;
         oldSSE = SSE;
 
 
