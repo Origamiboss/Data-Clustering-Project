@@ -26,19 +26,19 @@ but if you are going to run through an entire data set many times (ex: 100) then
 #include <random>
 #include <vector>
 
-//Phase 4
-#include<thread>
 
 using namespace std;
 
+
+
 //Phase 1 (Gather the data)
-int checkTheArguments(string fileName, int maxIterations, double convergenceThreshold, int numOfRuns, int typeOfClustering);
+static int checkTheArguments(string fileName, int maxIterations, double convergenceThreshold, int numOfRuns, int typeOfClustering);
 vector<vector<double>> readData(string fileName, int& numOfInstances, int& sizeOfInstances);
 vector<vector<double>> setClusters(vector<vector<double>>& data, int numOfClusters);
 
 
 //Phase 2 (Run the K-Means)
-double runIterations(int& maxIterations, double& convergenceThreshold, vector<vector<double>>& clusters, vector<vector<double>>& data, double& initialSSE, int& iterationsRan);
+double runIterations(int& maxIterations, double& convergenceThreshold, vector<vector<double>>& clusters, vector<vector<double>>& data, double& initialSSE, int& iterationsRan, vector<int>& labels, vector<double>& distancesToClosestCluster, vector<int>& clusterSizes);
 double calculateSquaredDistance(const vector<double>& x, const vector<double>& c);
 
 //Phase 3 (Normalization and Initialization)
@@ -49,15 +49,23 @@ vector<vector<double>> randomParitionClusters(vector<vector<double>>& data, int 
 vector<vector<double>> maximumMethodClusters(vector<vector<double>>& data, int numOfClusters);
 
 //Phase 4
-double calinski_validity(vector<vector<double>>& data, vector<vector<double>>& clusters);
+double calinski_validity(vector<vector<double>>& data, vector<vector<double>>& clusters, double& finalSSE, vector<int>& clusterSizes);
 void findClosestCluster(vector<double>& data, vector<vector<double>>& clusters, int& closestCluster, double& closestDist);
-double silhouette_width(vector<vector<double>>& data, vector<vector<double>>& clusters);
-double dunn(vector<vector<double>>& data, vector<vector<double>>& clusters);
+double silhouette_width(vector<vector<double>>& data, vector<vector<double>>& clusters, vector<int>& labels, vector<int>& clusterSizes);
+double dunn(vector<vector<double>>& data, vector<vector<double>>& clusters, vector<int>& labels);
+void evaluateClusteringMetrics(vector<vector<double>>& data, vector<vector<double>>& clusters, vector<int>& labels, vector<int>& clusterSizes, double& finalSSE, vector<double>& overallMean);
 
-//Phase 4 global Vars
-vector<int> labels;
-vector<double> distancesToClosestCluster;
-vector<int> clusterSizes;
+void runClusterForRunAndNumClusters(int runs, int numOfClusters, vector<vector<double>>& data, vector<vector<double>>& clusters,
+    int maxIterations, double convergenceThreshold,
+    int typeOfClustering);
+
+
+//overAll Mean
+vector<double> overallMean;
+
+vector<double> bestIndexCH;
+vector<double> bestIndexSW;
+vector<double> bestIndexDU;
 
 int main(int argc, char* argv[])
 {
@@ -69,10 +77,10 @@ int main(int argc, char* argv[])
     int typeOfClustering = -1;
 
 
-    // make sure there are 6 arguments
+    // make sure there are 5 arguments
     if (argc != 6)
     {
-        cout << "Usage: <F> <I> <T> <R> <V>" << endl;
+        cout << "Usage: <F> <I> <T> <R> <V> <K>" << endl;
         cout << "F: Name of the data file" << endl;
         cout << "I: Maximum number of iterations (positive integer)" << endl;
         cout << "T: Convergence threshold (non-negative real number)" << endl;
@@ -88,7 +96,7 @@ int main(int argc, char* argv[])
     convergenceThreshold = stod(argv[3]);
     numOfRuns = stoi(argv[4]);
     typeOfClustering = stoi(argv[5]);
-
+    
     //check the data
     int result = checkTheArguments(fileName, maxIterations, convergenceThreshold, numOfRuns, typeOfClustering);
 
@@ -100,80 +108,98 @@ int main(int argc, char* argv[])
     int sizeOfInstances, numOfInstances;
     //Read the data from the file
     vector<vector<double>> data = readData(fileName, numOfInstances, sizeOfInstances);
-    //data = minMaxNorm(data);
+    data = minMaxNorm(data);
 
-    labels.resize(numOfInstances);
-    distancesToClosestCluster.resize(numOfInstances,0.0);
+    
+    // Compute overall mean
+    overallMean.resize(sizeOfInstances, 0.0);
+    for (const auto& point : data) {
+        for (int i = 0; i < sizeOfInstances; i++) {
+            overallMean[i] += point[i];
+        }
+    }
+    for (int i = 0; i < sizeOfInstances; i++) {
+        overallMean[i] /= numOfInstances;
+    }
 
 
 
     int maxNumClusters = sqrt(numOfInstances / 2);
+    bestIndexCH.resize(maxNumClusters, -INFINITY);
+    bestIndexSW.resize(maxNumClusters, -INFINITY);
+    bestIndexDU.resize(maxNumClusters, -INFINITY);
     vector<vector<double>> clusters;
-    vector<double> bestIndex(maxNumClusters, -INFINITY);
-    vector<int> bestRun(maxNumClusters, -INFINITY);
 
-    //Run for number of runs
-    for (int runs = 1; runs < numOfRuns+1; runs++) {
-        //cout << endl << "Run: " << runs << endl;
-        // run for clusters
+
+    for (int runs = 1; runs < numOfRuns + 1; runs++) {
         for (int numOfClusters = minNumClusters; numOfClusters < maxNumClusters + 1; numOfClusters++) {
-            //obtain clusters | check which type of clustering to do
-            switch (typeOfClustering) {
-            case 0:
-                clusters = setClusters(data, numOfClusters);
-                break;
-            case 1:
-                clusters = randomParitionClusters(data, numOfClusters);
-                break;
-            case 2:
-                clusters = maximumMethodClusters(data, numOfClusters);
-                break;
-            }
-            //cout << "Clusters: " << numOfClusters << endl;
-            //run the iterations and display the SSE
-            double initialSSE;
-            int iterations;
-            double finalSSE = runIterations(maxIterations, convergenceThreshold, clusters, data, initialSSE, iterations);
-
-            //calinski validity
-            double index = calinski_validity(data, clusters);
-            //cout << "CH: " << index << endl << endl;
-            if (index > bestIndex[numOfClusters]) {
-                bestIndex[numOfClusters] = index;
-                bestRun[numOfClusters] = runs;
-            }
             
-            //silhouette width
-            /*double index = silhouette_width(data, clusters);
-            //cout << "SW: " << index << endl << endl;
-            if (index > bestIndex[numOfClusters]) {
-                bestIndex[numOfClusters] = index;
-                bestRun[numOfClusters] = runs;
-            }
-            */
-            /*
-            //Dunn
-            double index = dunn(data, clusters);
-            //cout << "Dunn: " << index << endl << endl;
-            if (index > bestIndex[numOfClusters]) {
-                bestIndex[numOfClusters] = index;
-                bestRun[numOfClusters] = runs;
-            }
-            */
-
+            runClusterForRunAndNumClusters(runs, numOfClusters, data, clusters,
+                maxIterations, convergenceThreshold, typeOfClustering);
         }
-        
     }
+    
+    
     //Header
-    //cout << "File Name\tCluster Num\tBest Index\tBest Run" << endl;
-    for (int i = minNumClusters; i < maxNumClusters + 1; i++) {
-        cout << fileName << "\t" << i << "\t" << bestIndex[i] << "\t" << bestRun[i] << endl;
-    }
+    cout << "File Name\tCluster Num\tCH\tSW\tDU" << endl;
+    //for (int i = minNumClusters; i < maxNumClusters + 1; i++) {
+      //  cout << fileName << "\t" << i << "\t" << bestIndexCH[i] << "\t" << bestIndexSW[i] << "\t" << bestIndexDU[i] << endl;
+    //}
     return 0;
+}
+// The function you want to run in each thread
+void runClusterForRunAndNumClusters(int runs, int numOfClusters, vector<vector<double>>& data, vector<vector<double>>& clusters,
+    int maxIterations, double convergenceThreshold,
+    int typeOfClustering){
+
+    
+    vector<int> labels;
+    vector<double> distancesToClosestCluster;
+    vector<int> clusterSizes;
+
+    // Obtain clusters based on the chosen method
+    switch (typeOfClustering) {
+    case 0:
+        clusters = setClusters(data, numOfClusters);
+        break;
+    case 1:
+        clusters = randomParitionClusters(data, numOfClusters);
+        break;
+    case 2:
+        clusters = maximumMethodClusters(data, numOfClusters);
+        break;
+    }
+    // Run the iterations
+    double initialSSE;
+    int iterations;
+    double finalSSE = runIterations(maxIterations, convergenceThreshold, clusters, data, initialSSE, iterations, labels, distancesToClosestCluster, clusterSizes);
+    //gather indexes
+    //evaluateClusteringMetrics(data, clusters, labels, clusterSizes, finalSSE, overallMean);
+
+    
+    
+    // Calculate the Calinski validity index
+    /*
+    double index = 0;
+    index = calinski_validity(data, clusters, finalSSE, clusterSizes);
+    if (index > bestIndexCH[numOfClusters]) {
+        bestIndexCH[numOfClusters] = index;
+    }
+    //silhouette width
+    index = silhouette_width(data, clusters, labels, clusterSizes);
+    if (index > bestIndexSW[numOfClusters]) {
+        bestIndexSW[numOfClusters] = index;
+    }
+
+    //Dunn
+    index = dunn(data, clusters, labels);
+    if (index > bestIndexDU[numOfClusters]) {
+        bestIndexDU[numOfClusters] = index;
+    }*/
 }
 
 //makes sure the arguments are valid
-int checkTheArguments(string fileName, int minNumClusters, int maxIterations, double convergenceThreshold, int numOfRuns, int typeOfClustering) {
+static int checkTheArguments(string fileName, int maxIterations, double convergenceThreshold, int numOfRuns, int typeOfClustering) {
     try
     {
         // Validate the arguments
@@ -183,11 +209,6 @@ int checkTheArguments(string fileName, int minNumClusters, int maxIterations, do
             throw invalid_argument(("File: " + fileName + " does not exist.").c_str());
         }
         file.close();
-
-        if (minNumClusters <= 1)
-        {
-            throw invalid_argument("Number of clusters (K) must be greater than 1.");
-        }
         if (maxIterations <= 0)
         {
             throw invalid_argument("Maximum number of iterations (I) must be positive.");
@@ -278,16 +299,17 @@ vector<vector<double>> setClusters(vector<vector<double>>& data, int numOfCluste
 }
 
 //Run through the Iterations and returns Initial, Final SSE and iterations | & are to save on memory managment and speed
-double runIterations(int& maxIterations, double& convergenceThreshold, vector<vector<double>>& clusters, vector<vector<double>>& data, double& initialSSE, int& iterationsRan) {
+double runIterations(int& maxIterations, double& convergenceThreshold, vector<vector<double>>& clusters, vector<vector<double>>& data, double& initialSSE, int& iterationsRan, vector<int>& labels, vector<double>& distancesToClosestCluster, vector<int>& clusterSizes) {
     double oldSSE = 0;
     int numOfInstances = data.size();
     int numOfClusters = clusters.size();
     int sizeOfInstances = data[0].size();
-
     //data for the loop | Initialize here to save on memory allocation
     vector<vector<double>> newClusters(numOfClusters, vector<double>(sizeOfInstances));
-    
+
     clusterSizes.resize(numOfClusters, 0);
+    distancesToClosestCluster.resize(numOfInstances);
+    labels.resize(numOfInstances);
 
     //i is the iteration we are on
     for (int i = 1; i <= maxIterations; i++) {
@@ -298,7 +320,7 @@ double runIterations(int& maxIterations, double& convergenceThreshold, vector<ve
             fill(cluster.begin(), cluster.end(), 0.0);
         }
         //make a vector to keep track of the number of data points in each cluster
-        fill(clusterSizes.begin(), clusterSizes.end(), 0.0);
+        fill(clusterSizes.begin(), clusterSizes.end(), 0);
 
         //Make an array to hold the calculated squared distances
         vector<vector<double>> sqauredDistances(numOfClusters, vector<double>(numOfInstances, 0.0));
@@ -321,7 +343,7 @@ double runIterations(int& maxIterations, double& convergenceThreshold, vector<ve
                     closest = h;         // Update closest cluster index
                 }
             }
-
+            
             // Calculate the SSE
             SSE += closestDist;
 
@@ -332,7 +354,6 @@ double runIterations(int& maxIterations, double& convergenceThreshold, vector<ve
                 //update who is the closest globally
                 labels[j] = closest;
                 distancesToClosestCluster[j] = closestDist;
-
             }
 
             //update the number of data points for this cluster
@@ -343,7 +364,7 @@ double runIterations(int& maxIterations, double& convergenceThreshold, vector<ve
 
 
         //check if the convergenceThreshold is reached and kill the run if so
-        if ((oldSSE - SSE) / oldSSE < convergenceThreshold && oldSSE != 0) {
+        if (oldSSE != 0 && (oldSSE - SSE) / oldSSE < convergenceThreshold) {
             //save the iterations and Final SSE
             iterationsRan = i - 1;
             break;
@@ -352,7 +373,6 @@ double runIterations(int& maxIterations, double& convergenceThreshold, vector<ve
         if (i == 1) {
             initialSSE = SSE;
         }
-        cout << "Iteration: " << i << "| SSE: " << SSE << endl;
         oldSSE = SSE;
 
 
@@ -583,26 +603,13 @@ void findClosestCluster(vector<double>& data, vector<vector<double>>& clusters, 
 }
 
 // Function to compute the Calinski-Harabasz Index
-double calinski_validity(vector<vector<double>>& data, vector<vector<double>>& clusters) {
+double calinski_validity(vector<vector<double>>& data, vector<vector<double>>& clusters, double& finalSSE, vector<int>& clusterSizes) {
     int numClusters = clusters.size();
     int numInstances = data.size();
     int dimension = data[0].size();
 
     if (numClusters < 2 || numInstances <= numClusters) {
         return 0; // CH index is not meaningful in this case
-    }
-
-    
-
-    // Compute overall mean
-    vector<double> overallMean(dimension, 0.0);
-    for (const auto& point : data) {
-        for (int i = 0; i < dimension; i++) {
-            overallMean[i] += point[i];
-        }
-    }
-    for (int i = 0; i < dimension; i++) {
-        overallMean[i] /= numInstances;
     }
 
     // Compute Between-cluster scatter (BSS)
@@ -619,10 +626,7 @@ double calinski_validity(vector<vector<double>>& data, vector<vector<double>>& c
     }
 
     // Compute Within-cluster scatter (WSS)
-    double WSS = 0.0;
-    for (int i = 0; i < numInstances; i++) {
-        WSS += distancesToClosestCluster[i];
-    }
+    double WSS = finalSSE;
 
     // Avoid division by zero
     if (WSS == 0) {
@@ -633,45 +637,56 @@ double calinski_validity(vector<vector<double>>& data, vector<vector<double>>& c
     double CH = (BSS / (numClusters - 1)) / (WSS / (numInstances - numClusters));
     return CH;
 }
-double silhouette_width(vector<vector<double>>& data, vector<vector<double>>& clusters) {
+double silhouette_width(vector<vector<double>>& data, vector<vector<double>>& clusters, vector<int>& labels, vector<int>& clusterSizes) {
     int numClusters = clusters.size();
     int numInstances = data.size();
-
     // Step 1: Find the distance inside each cluster a(i)
-    vector<int> labels(numInstances);
-    vector<double> a_i(numInstances, 0.0);
+    vector<double> a_i(numInstances, 0.0);  // Initialize with 0.0
     double total_silhouette = 0.0;
-
-    for (int i = 0; i < numInstances; i++) {
-        a_i[i] = distancesToClosestCluster;
-    }
 
     // Step 2: Find the distance to the closest next cluster b(i)
     vector<double> b_i(numInstances, numeric_limits<double>::max());
 
+    // Step 1 - Calculate a(i) - average distance within the same cluster
     for (int i = 0; i < numInstances; i++) {
         int myCluster = labels[i];
+        double totalDistToCluster = 0.0;
+        int count = 0;
+
+        // Loop through all data points to calculate the average distance to points in the same cluster
+        for (int j = 0; j < numInstances; j++) {
+            if (labels[j] == myCluster && i != j) {  // Do not include the point itself
+                totalDistToCluster += calculateSquaredDistance(data[i], data[j]);
+                count++;
+            }
+        }
+        if (count > 0) {
+            a_i[i] = totalDistToCluster / count;  // Calculate average distance within the cluster
+        }
+        // Step 2 - Calculate b(i) - minimum distance to the closest different cluster
 
         for (int j = 0; j < numClusters; j++) {
             if (j != myCluster) {  // Only consider other clusters
-                double totalDist = 0.0;
-                int count = 0;
+                double totalDistToOtherCluster = 0.0;
+                int otherClusterCount = 0;
 
                 // Loop through all data points to find those in cluster j
                 for (int k = 0; k < numInstances; k++) {
                     if (labels[k] == j) {  // Only consider points in cluster j
-                        totalDist += sqrt(calculateSquaredDistance(data[i], data[k])); // Euclidean distance
-                        count++;
+                        totalDistToOtherCluster += calculateSquaredDistance(data[i], data[k]);
+                        otherClusterCount++;
                     }
                 }
 
-                if (count > 0) {
-                    double avgDist = totalDist / count;  // Compute average distance to cluster j
-                    b_i[i] = min(b_i[i], avgDist);  // Keep the minimum distance to a different cluster
+                if (otherClusterCount > 0) {
+                    double avgDistToOtherCluster = totalDistToOtherCluster / otherClusterCount;
+                    b_i[i] = min(b_i[i], avgDistToOtherCluster);  // Keep the minimum distance to a different cluster
                 }
             }
         }
     }
+    
+
 
     // Step 3: Calculate the silhouette score for each point and sum it
     for (int i = 0; i < numInstances; i++) {
@@ -682,20 +697,15 @@ double silhouette_width(vector<vector<double>>& data, vector<vector<double>>& cl
     // Step 4: Return the average silhouette width
     return total_silhouette / numInstances;
 }
-double dunn(vector<vector<double>>& data, vector<vector<double>>& clusters) {
+
+
+double dunn(vector<vector<double>>& data, vector<vector<double>>& clusters, vector<int>& labels) {
     int numClusters = clusters.size();
     int numInstances = data.size();
 
-    vector<int>labels(numInstances);
-    //set up label
-    for (int i = 0; i < numInstances; i++) {
-        double dist;
-        findClosestCluster(data[i], clusters, labels[i], dist); //distance is throw away
-    }
-
     // Step 1: Calculate the maximum intra-cluster distance for each cluster
     double maxIntraClusterDist = 0.0;
-
+    double minInterClusterDist = numeric_limits<double>::infinity();
     for (int i = 0; i < numClusters; i++) {
         double maxDistInCluster = 0.0;
         // Find all pairs of points in cluster i
@@ -711,12 +721,7 @@ double dunn(vector<vector<double>>& data, vector<vector<double>>& clusters) {
             }
         }
         maxIntraClusterDist = max(maxIntraClusterDist, maxDistInCluster);
-    }
-
-    // Step 2: Calculate the minimum inter-cluster distance
-    double minInterClusterDist = numeric_limits<double>::infinity();
-
-    for (int i = 0; i < numClusters; i++) {
+        // Step 2: Calculate the minimum inter-cluster distance
         for (int j = i + 1; j < numClusters; j++) {
             // Find the closest pair of points between clusters i and j
             for (int k = 0; k < numInstances; k++) {
@@ -737,3 +742,118 @@ double dunn(vector<vector<double>>& data, vector<vector<double>>& clusters) {
     double dunnIndex = minInterClusterDist / maxIntraClusterDist;
     return dunnIndex;
 }
+void evaluateClusteringMetrics(vector<vector<double>>& data, vector<vector<double>>& clusters, vector<int>& labels, vector<int>& clusterSizes, double& finalSSE, vector<double>& overallMean) {
+    int numClusters = clusters.size();
+    int numInstances = data.size();
+    int dimension = data[0].size();
+    double BSS = 0.0, WSS = finalSSE, total_silhouette = 0.0, maxIntraClusterDist = 0.0, minInterClusterDist = numeric_limits<double>::infinity();
+    vector<double> a_i(numInstances, 0.0), b_i(numInstances, numeric_limits<double>::max());
+
+    if (numClusters < 2 || numInstances <= numClusters) {
+        return; // CH index is not meaningful in this case
+    }
+
+    // Compute Calinski-Harabasz Index (CH)
+    for (int i = 0; i < numClusters; i++) {
+        if (clusterSizes[i] == 0) continue;  // Ignore empty clusters
+
+        double dist = 0.0;
+        for (int j = 0; j < dimension; j++) {
+            double diff = clusters[i][j] - overallMean[j];
+            dist += diff * diff;
+        }
+        BSS += clusterSizes[i] * dist;
+    }
+
+    // Avoid division by zero in CH calculation
+    if (WSS == 0) {
+        return;
+    }
+
+    double CH = (BSS / (numClusters - 1)) / (WSS / (numInstances - numClusters));
+
+    // Compute Silhouette Width and Dunn Index (combine loops)
+    for (int i = 0; i < numInstances; i++) {
+        int myCluster = labels[i];
+        double totalDistToCluster = 0.0, totalDistToOtherCluster = 0.0;
+        int count = 0, otherClusterCount = 0;
+
+        // Calculate a(i) - average distance within the same cluster
+        for (int j = 0; j < numInstances; j++) {
+            if (labels[j] == myCluster && i != j) {
+                totalDistToCluster += calculateSquaredDistance(data[i], data[j]);
+                count++;
+            }
+        }
+        if (count > 0) {
+            a_i[i] = totalDistToCluster / count;  // Calculate average distance within the cluster
+        }
+
+        // Calculate b(i) - minimum distance to the closest different cluster, and update Dunn Index
+        for (int j = 0; j < numClusters; j++) {
+            if (j != myCluster) {
+                totalDistToOtherCluster = 0.0;
+                otherClusterCount = 0;
+
+                // Loop through all data points in different clusters
+                for (int k = 0; k < numInstances; k++) {
+                    if (labels[k] == j) {
+                        totalDistToOtherCluster += calculateSquaredDistance(data[i], data[k]);
+                        otherClusterCount++;
+                    }
+                }
+
+                if (otherClusterCount > 0) {
+                    double avgDistToOtherCluster = totalDistToOtherCluster / otherClusterCount;
+                    b_i[i] = min(b_i[i], avgDistToOtherCluster);  // Keep the minimum distance to a different cluster
+                }
+
+                // Compute Dunn Index - min inter-cluster distance
+                for (int k = 0; k < numInstances; k++) {
+                    if (labels[k] == myCluster) {
+                        for (int l = 0; l < numInstances; l++) {
+                            if (labels[l] == j) {
+                                double dist = sqrt(calculateSquaredDistance(data[k], data[l]));
+                                minInterClusterDist = min(minInterClusterDist, dist);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Calculate silhouette score
+        double silhouette_i = (b_i[i] - a_i[i]) / max(a_i[i], b_i[i]);
+        total_silhouette += silhouette_i;
+    }
+
+    double silhouetteWidth = total_silhouette / numInstances;
+
+    // Compute Dunn Index - max intra-cluster distance
+    for (int i = 0; i < numClusters; i++) {
+        double maxDistInCluster = 0.0;
+        for (int j = 0; j < numInstances; j++) {
+            if (labels[j] == i) {
+                for (int k = j + 1; k < numInstances; k++) {
+                    if (labels[k] == i) {
+                        double dist = sqrt(calculateSquaredDistance(data[j], data[k]));
+                        maxDistInCluster = max(maxDistInCluster, dist);
+                    }
+                }
+            }
+        }
+        maxIntraClusterDist = max(maxIntraClusterDist, maxDistInCluster);
+    }
+
+    double dunnIndex = minInterClusterDist / maxIntraClusterDist;
+
+    // Save the indexes
+    if (CH > bestIndexCH[numClusters])
+        bestIndexCH[numClusters] = CH;
+    if (silhouetteWidth > bestIndexSW[numClusters])
+        bestIndexSW[numClusters] = silhouetteWidth;
+    if (dunnIndex > bestIndexDU[numClusters])
+        bestIndexDU[numClusters] = dunnIndex;
+}
+
+
