@@ -78,7 +78,6 @@ int main(int argc, char* argv[])
     double convergenceThreshold = -1;
     int numOfRuns = -1;
     int typeOfClustering = -1;
-    
 
     // make sure there are 5 arguments
     if (argc != 6)
@@ -102,7 +101,6 @@ int main(int argc, char* argv[])
     
     //check the data
     int result = checkTheArguments(fileName, maxIterations, convergenceThreshold, numOfRuns, typeOfClustering);
-
     if (result == 1) {
         //error
         return 1;
@@ -130,7 +128,6 @@ int main(int argc, char* argv[])
     }
 
 
-
     int maxNumClusters = sqrt(numOfInstances / 2);
     bestIndexCH = new double [maxNumClusters];
     bestIndexSW = new double[maxNumClusters];
@@ -146,7 +143,6 @@ int main(int argc, char* argv[])
 
     maxDistCluster = new double[maxNumClusters];
     minDistCluster = new double[maxNumClusters];
-    
     for (int runs = 1; runs < numOfRuns + 1; runs++) {
         for (int numOfClusters = minNumClusters; numOfClusters < maxNumClusters + 1; numOfClusters++) {
             //reset maxDist and minDist
@@ -220,6 +216,7 @@ void runClusterForRunAndNumClusters(int runs, int numOfClusters, double** data, 
     double initialSSE;
     int iterations;
     double finalSSE = runIterations(maxIterations, convergenceThreshold, clusters, data, initialSSE, iterations, labels, distancesToClosestCluster, clusterSizes, numOfInstances, sizeOfInstance, numOfClusters);
+    cout << "Cluster Ran: " << numOfClusters << endl;
     //gather indexes
     double index = 0;
     //Calinski
