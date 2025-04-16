@@ -286,7 +286,7 @@ double** readData(string fileName, int& numOfInstances, int& sizeOfInstances) {
     ss >> numOfInstances >> sizeOfInstances;
 
     // Create a 2D array with numOfInstances rows and sizeOfInstances columns
-    double** data = new double*[numOfInstances];
+    double** data = new double* [numOfInstances];
     //create the rows inside of data
     for (int i = 0; i < numOfInstances; i++) {
         data[i] = new double[sizeOfInstances];
@@ -827,6 +827,24 @@ double davies_bouldin(double** data, double** clusters, int* labels, int numClus
 
     // Return the average Davies-Bouldin index
     return dbIndex / numClusters;
+}
+
+double RandValidation() {
+    //This method works utilizing the formula (a+b)/(a+b+c+d)
+    int a = 0; // Number of point pairs that are in the same cluster in both true and predicted labels
+    int b = 0; // Number of point pairs that are in different clusters in both true and predicted labels
+    int c = 0; // Number of pairs that are in the same cluster in the true labels but not predicted
+    int d = 0; // Number of pairs that are in the same cluster in predicted labels but not in true
+
+    return 0.0;
+}
+double JaccardValidation() {
+
+    return 0.0;
+}
+double Fowlkes_Mallows() {
+
+    return 0.0;
 }
 
 
